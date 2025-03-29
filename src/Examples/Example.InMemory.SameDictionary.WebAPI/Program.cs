@@ -1,5 +1,10 @@
+using Example.Domain;
+using Example.Domain.Entities;
+using Example.Domain.Handlers;
 using Example.InMemory.SameDictionary.WebAPI;
+using Example.InMemory.SameDictionary.WebAPI.Handlers;
 using SimpleEventSourcing;
+using SimpleEventSourcing.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +19,9 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.UseEventSourcing(config => { config.UseInMemory = true; });
+builder.Services.AddExampleHandlers();
+builder.Services.AddTransient<IEventHandler<Event, Order>, OrderEventHandler>();
+builder.Services.AddTransient<IEventHandler<Event, User>, UserEventHandler>();
 builder.Services.AddScoped<StorageService>();
 
 var app = builder.Build();

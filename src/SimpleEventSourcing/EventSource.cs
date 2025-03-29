@@ -1,5 +1,4 @@
-﻿using System.Reflection;
-using SimpleEventSourcing.Exceptions;
+﻿using SimpleEventSourcing.Exceptions;
 using SimpleEventSourcing.Interfaces;
 using SimpleEventSourcing.Interfaces.Repositories;
 
@@ -8,27 +7,38 @@ public class EventSource<TProjection, TEvent>
     where TProjection : IProjection, new()
     where TEvent : Event
 {
-    private static readonly Dictionary<Type, MethodInfo> MethodCache = new();
-
+    private readonly Dictionary<Type, IEventHandler<TEvent, TProjection>> _handlerCache = new();
+    private readonly Dictionary<Type, object> _eventHandlers;
     private readonly IProjectionRepository<TProjection> _projectionRepository;
     private readonly IEventRepository<TEvent> _eventRepository;
 
     public EventSource(
+        IEnumerable<IEventHandler<TEvent, TProjection>> eventHandlers,
         IProjectionRepository<TProjection> projectionRepository,
         IEventRepository<TEvent> eventRepository)
     {
         _projectionRepository = projectionRepository;
         _eventRepository = eventRepository;
+        _eventHandlers = eventHandlers.ToDictionary(
+            handler => handler.GetType()
+                .GetInterfaces()
+                .First(i => i.IsGenericType &&
+                            i.GetGenericTypeDefinition() == typeof(IEventHandler<,>))
+                .GetGenericArguments()[0],
+            handler => (object)handler);
     }
 
     public async Task AppendAsync(TEvent e, CancellationToken cancellationToken)
     {
-        var projectionMethodInfo = GetMethodByReflection(e);
+        var projection = await _projectionRepository.GetAsync(e.StreamId, cancellationToken) ?? new TProjection();
+        var handler = GetHandler(e.GetType());
+
+        if (handler is not null)
+            handler.Handle(projection, e);
+        else
+            throw new EventHandlerNotFoundException(projection, e);
 
         e.CreatedAt = DateTime.UtcNow;
-        var projection = await _projectionRepository.GetAsync(e.StreamId, cancellationToken) ?? new TProjection();
-
-        projectionMethodInfo.Invoke(projection, [e]);
 
         await _eventRepository.AppendAsync(e, cancellationToken);
         await _projectionRepository.SaveAsync(projection, cancellationToken);
@@ -50,26 +60,20 @@ public class EventSource<TProjection, TEvent>
         return result is not null;
     }
 
-    private static MethodInfo GetMethodByReflection(Event e)
+    private IEventHandler<TEvent, TProjection>? GetHandler(Type eventType)
     {
-        var eventType = e.GetType();
+        if (_handlerCache.TryGetValue(eventType, out var cachedHandler))
+            return cachedHandler;
 
-        if (MethodCache.TryGetValue(eventType, out var methodFromCache))
-            return methodFromCache;
+        var handler = _eventHandlers.TryGetValue(eventType, out var handlerObject)
+            ? handlerObject as IEventHandler<TEvent, TProjection>
+            : eventType.BaseType is not null
+                ? GetHandler(eventType.BaseType)
+                : null;
 
-        var projectionType = typeof(TProjection);
-        var projectionMethodInfo = projectionType
-            .GetMethods()
-            .FirstOrDefault(m =>
-                m.ReturnType == typeof(void) &&
-                m.GetParameters().Length == 1 &&
-                m.GetParameters().FirstOrDefault(p => p.ParameterType == eventType) is not null);
+        if (handler is not null)
+            _handlerCache[eventType] = handler;
 
-        if (projectionMethodInfo is null)
-            throw new ProjectionNotImplementedEventException(projectionType, e);
-
-        MethodCache[eventType] = projectionMethodInfo;
-
-        return projectionMethodInfo;
+        return handler;
     }
 }
