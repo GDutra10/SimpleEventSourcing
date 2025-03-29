@@ -8,6 +8,8 @@ public class EventSource<TProjection, TEvent>
     where TProjection : IProjection, new()
     where TEvent : Event
 {
+    private static readonly Dictionary<Type, MethodInfo> MethodCache = new();
+
     private readonly IProjectionRepository<TProjection> _projectionRepository;
     private readonly IEventRepository<TEvent> _eventRepository;
 
@@ -50,16 +52,23 @@ public class EventSource<TProjection, TEvent>
 
     private static MethodInfo GetMethodByReflection(Event e)
     {
+        var eventType = e.GetType();
+
+        if (MethodCache.TryGetValue(eventType, out var methodFromCache))
+            return methodFromCache;
+
         var projectionType = typeof(TProjection);
         var projectionMethodInfo = projectionType
             .GetMethods()
             .FirstOrDefault(m =>
                 m.ReturnType == typeof(void) &&
                 m.GetParameters().Length == 1 &&
-                m.GetParameters().FirstOrDefault(p => p.ParameterType == e.GetType()) is not null);
+                m.GetParameters().FirstOrDefault(p => p.ParameterType == eventType) is not null);
 
         if (projectionMethodInfo is null)
             throw new ProjectionNotImplementedEventException(projectionType, e);
+
+        MethodCache[eventType] = projectionMethodInfo;
 
         return projectionMethodInfo;
     }
