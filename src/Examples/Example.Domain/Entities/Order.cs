@@ -7,6 +7,7 @@ namespace Example.Domain.Entities;
 public class Order : IProjection
 {
     public Guid Id { get; set; }
+    public int Version { get; set; }
     public Guid UserId { get; set; }
     public decimal TotalAmount { get; set; }
     public string Currency { get; set; } = string.Empty;

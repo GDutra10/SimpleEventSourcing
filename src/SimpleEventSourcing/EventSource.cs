@@ -2,6 +2,7 @@
 using SimpleEventSourcing.Interfaces;
 using SimpleEventSourcing.Interfaces.Repositories;
 using System.Collections.Concurrent;
+using SimpleEventSourcing.Singletons;
 
 namespace SimpleEventSourcing;
 public class EventSource<TProjection, TEvent>
@@ -31,18 +32,23 @@ public class EventSource<TProjection, TEvent>
 
     public async Task AppendAsync(TEvent e, CancellationToken cancellationToken)
     {
-        var projection = await _projectionRepository.GetAsync(e.StreamId, cancellationToken) ?? new TProjection();
-        var handler = GetHandler(e.GetType());
+        var runCount = 0;
 
-        if (handler is not null)
-            handler.Handle(projection, e);
-        else
-            throw new EventHandlerNotFoundException(projection, e);
+        do
+        {
+            runCount++;
+            
+            if (await TrySaveProjectionAsync(e, cancellationToken))
+                break;
 
-        e.CreatedAt = DateTime.UtcNow;
+            if (runCount < EventSourcingConfiguration.Instance.RetryTimes)
+                await Task.Delay(EventSourcingConfiguration.Instance.RetryDelayMs, cancellationToken);
+            else
+                throw new ConcurrencyException(e);
+        } 
+        while (true);
 
         await _eventRepository.AppendAsync(e, cancellationToken);
-        await _projectionRepository.SaveAsync(projection, cancellationToken);
     }
 
     public async Task<TProjection?> GetAsync(Guid id, CancellationToken cancellationToken)
@@ -61,12 +67,39 @@ public class EventSource<TProjection, TEvent>
         return result is not null;
     }
 
+    private async Task<bool> TrySaveProjectionAsync(TEvent e, CancellationToken cancellationToken)
+    {
+        var projection = await _projectionRepository.GetAsync(e.StreamId, cancellationToken) ?? new TProjection();
+        var originalVersion = projection.Version;
+        var handler = GetHandler(e.GetType());
+
+        if (handler is not null)
+            handler.Handle(projection, e);
+        else
+            throw new EventHandlerNotFoundException(projection, e);
+
+        e.CreatedAt = DateTime.UtcNow;
+
+        var success = await _projectionRepository.TrySaveAsync(originalVersion, projection, cancellationToken);
+
+        if (success)
+            projection.Version++;
+
+        return success;
+    }
+
     private IEventHandler<TEvent, TProjection>? GetHandler(Type eventType)
     {
-        return HandlerCache.GetOrAdd(eventType, type => _eventHandlers.TryGetValue(type, out var handlerObject)
-            ? handlerObject as IEventHandler<TEvent, TProjection>
-            : type.BaseType is not null
-                ? GetHandler(type.BaseType)
-                : null);
+        return HandlerCache.GetOrAdd(eventType, type =>
+        {
+            var handler = _eventHandlers.TryGetValue(type, out var handlerObject)
+                ? handlerObject as IEventHandler<TEvent, TProjection>
+                : null;
+
+            if (handler != null)
+                return handler;
+
+            return type.BaseType is not null ? GetHandler(type.BaseType) : null;
+        });
     }
 }
