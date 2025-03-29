@@ -1,13 +1,14 @@
 ﻿using SimpleEventSourcing.Exceptions;
 using SimpleEventSourcing.Interfaces;
 using SimpleEventSourcing.Interfaces.Repositories;
+using System.Collections.Concurrent;
 
 namespace SimpleEventSourcing;
 public class EventSource<TProjection, TEvent>
     where TProjection : IProjection, new()
     where TEvent : Event
 {
-    private readonly Dictionary<Type, IEventHandler<TEvent, TProjection>> _handlerCache = new();
+    private static readonly ConcurrentDictionary<Type, IEventHandler<TEvent, TProjection>?> HandlerCache = new();
     private readonly Dictionary<Type, object> _eventHandlers;
     private readonly IProjectionRepository<TProjection> _projectionRepository;
     private readonly IEventRepository<TEvent> _eventRepository;
@@ -62,18 +63,10 @@ public class EventSource<TProjection, TEvent>
 
     private IEventHandler<TEvent, TProjection>? GetHandler(Type eventType)
     {
-        if (_handlerCache.TryGetValue(eventType, out var cachedHandler))
-            return cachedHandler;
-
-        var handler = _eventHandlers.TryGetValue(eventType, out var handlerObject)
+        return HandlerCache.GetOrAdd(eventType, type => _eventHandlers.TryGetValue(type, out var handlerObject)
             ? handlerObject as IEventHandler<TEvent, TProjection>
-            : eventType.BaseType is not null
-                ? GetHandler(eventType.BaseType)
-                : null;
-
-        if (handler is not null)
-            _handlerCache[eventType] = handler;
-
-        return handler;
+            : type.BaseType is not null
+                ? GetHandler(type.BaseType)
+                : null);
     }
 }
