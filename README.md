@@ -51,7 +51,8 @@ public class UserCreateHandler : IEventHandler<UserCreatedEvent, User>
 
 ```csharp
 var eventHandlers = new List<IEventHandler<UserCreatedEvent, User>> { new UserCreateHandler() };
-var eventSource = new EventSource<User, UserCreatedEvent>(eventHandlers, projectionRepository, eventRepository);
+var eventSourceConfiguration = new EventSourcingConfiguration();
+var eventSource = new EventSource<User, UserCreatedEvent>(eventHandlers, projectionRepository, eventRepository, eventConfiguration);
 ```
 
 or 
