@@ -2,7 +2,6 @@
 using SimpleEventSourcing.Interfaces;
 using SimpleEventSourcing.Interfaces.Repositories;
 using System.Collections.Concurrent;
-using SimpleEventSourcing.Singletons;
 
 namespace SimpleEventSourcing;
 public class EventSource<TProjection, TEvent>
@@ -13,14 +12,17 @@ public class EventSource<TProjection, TEvent>
     private readonly Dictionary<Type, object> _eventHandlers;
     private readonly IProjectionRepository<TProjection> _projectionRepository;
     private readonly IEventRepository<TEvent> _eventRepository;
+    private readonly EventSourcingConfiguration _eventSourcingConfiguration;
 
     public EventSource(
         IEnumerable<IEventHandler<TEvent, TProjection>> eventHandlers,
         IProjectionRepository<TProjection> projectionRepository,
-        IEventRepository<TEvent> eventRepository)
+        IEventRepository<TEvent> eventRepository,
+        EventSourcingConfiguration eventSourcingConfiguration)
     {
         _projectionRepository = projectionRepository;
         _eventRepository = eventRepository;
+        _eventSourcingConfiguration = eventSourcingConfiguration;
         _eventHandlers = eventHandlers.ToDictionary(
             handler => handler.GetType()
                 .GetInterfaces()
@@ -41,8 +43,8 @@ public class EventSource<TProjection, TEvent>
             if (await TrySaveProjectionAsync(e, cancellationToken))
                 break;
 
-            if (runCount < EventSourcingConfiguration.Instance.RetryTimes)
-                await Task.Delay(EventSourcingConfiguration.Instance.RetryDelayMs, cancellationToken);
+            if (runCount < _eventSourcingConfiguration.RetryTimes)
+                await Task.Delay(_eventSourcingConfiguration.RetryDelayMs, cancellationToken);
             else
                 throw new ConcurrencyException(e);
         } 

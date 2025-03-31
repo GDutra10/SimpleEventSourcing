@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using SimpleEventSourcing.InMemory;
 using SimpleEventSourcing.Interfaces.Repositories;
-using SimpleEventSourcing.Singletons;
 
 namespace SimpleEventSourcing;
 public static class Startup
@@ -11,6 +10,7 @@ public static class Startup
         Action<EventSourcingOptions> options)
         => services
             .AddScoped(typeof(EventSource<,>))
+            .AddScoped<EventSourcingConfiguration>()
             .ApplyConfiguration(options);
 
     private static IServiceCollection ApplyConfiguration(this IServiceCollection services, Action<EventSourcingOptions> options)
@@ -19,8 +19,11 @@ public static class Startup
 
         options(configuration);
 
-        EventSourcingConfiguration.Instance.RetryDelayMs = configuration.RetryDelayMs > 0 ? configuration.RetryDelayMs : 0;
-        EventSourcingConfiguration.Instance.RetryTimes = configuration.RetryTimes > 0 ? configuration.RetryTimes : 0;
+        _ = new EventSourcingConfiguration
+        {
+            RetryDelayMs = configuration.RetryDelayMs > 0 ? configuration.RetryDelayMs : 0,
+            RetryTimes = configuration.RetryTimes > 0 ? configuration.RetryTimes : 0
+        };
 
         if (!configuration!.UseInMemory) 
             return services;

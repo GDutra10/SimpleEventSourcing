@@ -18,7 +18,12 @@ builder.Services.AddControllers()
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.UseEventSourcing(config => { config.UseInMemory = true; });
+builder.Services.UseEventSourcing(config => 
+{ 
+    config.UseInMemory = true;
+    config.RetryDelayMs = 1000;
+    config.RetryTimes = 2;
+});
 builder.Services.AddExampleHandlers();
 builder.Services.AddTransient<IEventHandler<Event, Order>, OrderEventHandler>();
 builder.Services.AddTransient<IEventHandler<Event, User>, UserEventHandler>();
